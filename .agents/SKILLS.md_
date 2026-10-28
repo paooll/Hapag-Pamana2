@@ -1,0 +1,37 @@
+# Installed Skills
+
+Curated index of agent skills installed under `.agents/skills/`. Each skill is a folder containing a `SKILL.md`. Load a skill with `cloud_read_skill("<name>")` where `<name>` is the folder name (the skill's identity).
+
+No default skill — pick the one that fits the task.
+
+---
+
+## Skill catalog
+
+| Skill (folder) | One-line purpose | Source |
+|---|---|---|
+| caveman | Compress response style for token efficiency while preserving all technical detail, code, and commands. Opt-in via "caveman mode". | (already installed) |
+| superpowers | Invoke relevant skills BEFORE any response or action — including clarifying questions and exploration. The meta-skill for skill discipline. | obat/superpowers (skills/using-superpowers) |
+| awesome-design | Curated collection of DESIGN.md design-system docs extracted from real sites. Copy one in to steer an agent's UI look and feel. | VoltAgent/awesome-design-md |
+| brag | Turn the current project into a short, shareable launch video via Hyperframes. Read the `/brag` invocation, plan, storyboard, compose, render, deliver. | latent-spaces/brag |
+| claude-mem | OpenClaw plugin: persistent cross-session agent memory via system-prompt injection + optional observation feed to Telegram/Discord/Slack/Signal/WhatsApp/LINE. | thedotmack/claude-mem |
+| ui-ux-pro-max | Design reference: 79 UI styles, 192 palettes, 74 font pairings, 119 UX guidelines, 25 chart types across 22 stacks. | nextlevelbuilder/ui-ux-pro-max-skill |
+| taste | Anti-slop frontend art direction from a study of 247 gallery sites: deal a direction, find the idea, build, gate with a real-browser inspector, look and fix. | Leonxlnx/taste-skill |
+| browser-use | Direct browser control via CDP: automation, scraping, testing, screenshots. Local Chrome daemon or Browser Use Cloud. | browser-use/browser-use |
+| i-have-adhd | Shape output for an ADHD reader: lead with the next action, number steps, restate state, give concrete time estimates, make wins visible. Opt-in via /i-have-adhd. | ayghri/i-have-adhd |
+| design-motion-principles | Motion/interaction design in two modes: Create (build components with purposeful motion) and Audit (review for AI-slop, emit HTML report). Three designer lenses (Emil/Kowalski, Jakub/Krehel, Jhey/Tompkins) weighted by context. | kylezantos/design-motion-principles |
+| ecc | Agent architecture audit: 12-layer stack diagnostic for wrapper regression, memory pollution, tool-discipline failures, hidden repair loops, rendering corruption. Severity-ranked, code-first fixes. | affaan-m/ECC (skills/agent-architecture-audit) |
+| impeccable | Frontend design director skill: design/redesign/critique/audit/polish/harden/animate UI. Modes (Persuade/Operate/Read/Experience), command table, craft floor. Points to the impeccable toolchain (scripts/impeccable + references). | pbakaus/impeccable |
+| ponytail | Lazy senior dev mode: smallest complete change, reply a busy human reads in one go. Levels lite/full/ultra. Opt-in via "ponytail". | DietrichGebert/ponytail |
+| claude-code-best-practice | Claude Code skills reference: 20 frontmatter fields and the 25 official bundled skills, with what each does and when to use it. Reference/guide, not a workflow. | shanraisshan/claude-code-best-practice |
+| agentic-awesome-skills | A curated registry/index of many agent skills (security, design, testing, agent-tooling, marketing, workflow, ai-ml, business, legal...) with metadata, risk, source, plugin setup. Discovery/reference layer — not the full registry inline. | sickn33/agentic-awesome-skills |
+
+---
+
+## Notes
+
+- Folder name = skill identity for `cloud_read_skill("<name>")`. The `source` column points to the upstream repo; the canonical upstream skill name may differ (see each skill's own `note` in its frontmatter).
+- Several upstream repos ship *multiple* skills or a suite (e.g. superpowers, brag, browser-use, ponytail, ecc, agentic-awesome-skills). This project installs **one skill per repo**, chosen as the most generally useful one, under the folder name that matches the existing `.md` stub. Other upstream skills in those repos are not installed here.
+- A few upstream repos were not a single SKILL.md (awesome-design = DESIGN.md collection, ui-ux-pro-max = skill.json manifest, claude-code-best-practice = guide markdown, agentic-awesome-skills = registry index, impeccable = SKILL.src.md template + toolchain). For those, this index's skill was built from the best available instruction file in the repo.
+- claude-mem is an OpenClaw-gateway plugin guide; it is not a Claude-Code workflow skill by default.
+- caveman was already installed before this refresh; the other 14 were installed/converted from the `.agents/*.md` stubs during this session.
