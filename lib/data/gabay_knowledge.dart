@@ -371,6 +371,15 @@ class GabayMenuKnowledge {
   static List<Product> inCategory(List<Product> all, String category) =>
       visible(all).where((p) => p.category.toLowerCase() == category.toLowerCase()).toList();
 
+  /// Whether a dish carries any allergen the member has asked us to avoid.
+  static bool crossoversAvoided(Product dish, Set<String> avoided) {
+    if (avoided.isEmpty) return false;
+    for (final tag in dish.allergens) {
+      if (avoided.contains(tag)) return true;
+    }
+    return false;
+  }
+
   /// Healthier alternatives to a dish, drawn from the same published menu.
   ///
   /// "Healthier" here is a menu-grounded heuristic, not a medical claim: dishes in
