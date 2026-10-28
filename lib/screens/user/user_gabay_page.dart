@@ -108,7 +108,7 @@ class _UserGabayPageState extends State<UserGabayPage> {
     // screen doesn't start as a blank chat. Keep it short — the capabilities
     // list and starters below already say what Gabay can do.
     _chat.addAssistant(
-      'Kumusta, ${CustomerRepository().displayName?.trim().split(\' \').first ?? \'Kaibigan'}! '
+      'Kumusta, ${CustomerRepository().displayName?.trim().split(' ').first ?? 'Kaibigan'}! '
       'I\'m Gabay, your catering companion. I can suggest meals and packages, work to '
       'your budget and guest count, and answer your planning questions. Try one of the '
       'suggestions below, or ask me anything about catering.',
@@ -234,9 +234,9 @@ class _UserGabayPageState extends State<UserGabayPage> {
                   FadeSlideIn(
                     delay: Duration(milliseconds: 200 + i * 50),
                     child: _CapabilityCard(
-                      icon: _capabilities[i].\$1,
-                      title: _capabilities[i].\$2,
-                      subtitle: _capabilities[i].\$3,
+                      icon: _capabilities[i].$1,
+                      title: _capabilities[i].$2,
+                      subtitle: _capabilities[i].$3,
                     ),
                   ),
                   const SizedBox(height: AppSpacing.sm + 2),
@@ -738,6 +738,13 @@ class _GabayChat {
     required MemberPreferences prefs,
     required RecommendationSet recs,
   }) async {
+    final person = GabayPersonalization(
+      prefs: prefs,
+      groupSize: _activeGroup(prefs),
+      occasionTypes: _occasionTypes(prefs),
+      dietDirective: _dietDirective(prefs),
+      healthierFirst: prefs.gabayHealthierFirst,
+    );
     final lower = text.toLowerCase();
 
     // ── FAQ first ──────────────────────────────────────────────────────────
@@ -816,7 +823,7 @@ class _GabayChat {
       final all = await _packages();
       final fitting = GabayPackageKnowledge.fitting(all, budget: budget, group: group);
       if (fitting.isNotEmpty) {
-        return _packageReply(fitting, budget: budget, group: group);
+        return GabayPackagePersonalization.reason(person, fitting);
       }
       // Offer the closest thing when nothing fits exactly.
       final candidates = GabayPackageKnowledge.recommendable(all);
@@ -858,12 +865,8 @@ class _GabayChat {
       final alts = GabayMenuKnowledge.healthierAlternatives(await _products(), dish.category);
       if (alts.isNotEmpty) {
         final names = alts.take(4).map((p) => p.name).toList();
-        final note = GabayMenuKnowledge.crossoversAvoided(dish, prefs.avoidAllergens)
-            ? ' A couple of these may still carry something you\'ve asked us to avoid — '
-                'double-check with the kitchen, especially if it\'s a serious allergy.'
-            : '';
         return 'For a lighter take on "${dish.name}", you might also look at: '
-            '${names.join(", ")}. ${note}These are menu suggestions — the kitchen makes '
+            '${names.join(", ")}. These are menu suggestions — the kitchen makes '
             'the final call, and remember we cook on shared equipment.';
       }
       return 'I don\'t have a clearer lighter alternative for "${dish.name}" on the '
@@ -894,6 +897,31 @@ class _GabayChat {
 
   bool _looksLike(String text, String fragment) {
     return text.toLowerCase().contains(fragment.toLowerCase());
+  }
+
+  GroupSize? _activeGroup(MemberPreferences prefs) {
+    final usual = prefs.person?.groupSize;
+    if (usual != null) return usual;
+    final crowd = prefs.person?.groupSize;
+    return crowd;
+  }
+
+  List<OccasionType> _occasionTypes(MemberPreferences prefs) {
+    final profile = prefs.person;
+    if (profile == null) return const [];
+    return profile.occasionTypes.map((k) => OccasionType.fromKey(k)).whereType<OccasionType>().toList();
+  }
+
+  String? _dietDirective(MemberPreferences prefs) {
+    final profile = prefs.person;
+    final tasty = profile?.dietRange;
+    if (tasty != null && tasty.isNotEmpty) return tasty;
+    final avoid = prefs.avoidAllergens;
+    final cleaned = avoid.where((a) => a.isNotBlank()).toList();
+    if (cleaned.isNotEmpty) {
+      return 'avoid ${cleaned.map((a) => a.toLowerCase().trim()).join(" and ")}';
+    }
+    return null;
   }
 
   BudgetRange? _parseBudget(String text) {
@@ -991,34 +1019,6 @@ class _GabayChat {
         .where((w) => w.isNotEmpty && !stopwords.contains(w))
         .toList();
   }
-
-  String _packageReply(
-    List<CateringPackage> fitting, {
-    required BudgetRange? budget,
-    required GroupSize? group,
-  }) {
-    final top = fitting.take(3);
-    final names = top.map((p) => p.name).join(', ');
-    final reasoning = StringBuffer();
-
-    if (budget != null) {
-      reasoning.write('At around ₱${_pesoBand(budget)} a head, ');
-    } else {
-      reasoning.write('For your budget, ');
-    }
-
-    if (group != null) {
-      reasoning.write('for ${_groupLabel(group)}, ');
-    }
-
-    reasoning.write(
-      'the packages that fit are ${names}. Tap one to see what it includes and book it. '
-      'Each one lists its own inclusions and minimum guest count, so you can check it '
-      'against your event before you commit.',
-    );
-
-    return reasoning.toString();
-  }
 }
 
 class _GabayMessage {
@@ -1026,4 +1026,6 @@ class _GabayMessage {
 
   final String text;
   final bool fromUser;
+
+  bool get isFromUser => fromUser;
 }

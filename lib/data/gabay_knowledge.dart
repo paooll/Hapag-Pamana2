@@ -11,21 +11,17 @@
 /// Gabay stays grounded in what the business has actually published right now.
 library;
 
-import 'package:flutter/foundation.dart';
+import 'dart:math';
 
 import 'catering.dart';
 import 'member_preferences.dart';
 import 'product.dart';
 import 'recommendation.dart';
+import 'recommendation_engine.dart';
+import 'booking.dart';
+import 'taste_profile.dart';
 
-/// The FAQ content Gabay answers from — the business's existing written FAQ, lifted
-/// out of the Help & FAQ settings screen so the assistant can search it instead of
-/// only the settings UI exposing it.
-///
-/// Groups and items are the same content the settings screen shows; the difference
-/// is that this is now a real knowledge source the assistant can match questions to.
 class GabayFaq {
-  /// All FAQ content, grouped as the business wrote it.
   static const List<GabayFaqGroup> groups = [
     GabayFaqGroup(
       label: 'BOOKING & ORDERS',
@@ -193,17 +189,10 @@ class GabayFaq {
     ),
   ];
 
-  /// Best-matching FAQ item for a member's question, or null when nothing fits well.
-  ///
-  /// Matching is intentionally simple and on-device: we look for the item whose
-  /// question shares the most meaningful words with what the member typed. This is
-  /// enough for a bounded FAQ assistant, and it keeps the answers grounded in the
-  /// business's own copy rather than rephrasing it into something it might get wrong.
   static GabayFaqItem? findAnswer(String query) {
     final needle = query.toLowerCase().trim();
     if (needle.isEmpty) return null;
 
-    // A small stopword set so a generic "how do I" doesn't match everything.
     final stopwords = <String>{
       'how', 'do', 'i', 'can', 'i', 'what', 'is', 'are', 'the', 'my',
       'a', 'an', 'and', 'or', 'to', 'for', 'in', 'on', 'of', 'with',
@@ -226,7 +215,6 @@ class GabayFaq {
         for (final term in terms) {
           if (hay.contains(term)) score++;
         }
-        // Prefer a match on the question itself over the same word in the answer.
         if (item.question.toLowerCase().contains(needle)) {
           score += 2;
         }
@@ -237,12 +225,10 @@ class GabayFaq {
       }
     }
 
-    // Require at least one meaningful term to match — otherwise we'd be guessing.
     return bestScore > 0 ? best : null;
   }
 }
 
-/// One FAQ group, as the business authored it.
 class GabayFaqGroup {
   const GabayFaqGroup({
     required this.label,
@@ -253,7 +239,6 @@ class GabayFaqGroup {
   final List<GabayFaqItem> items;
 }
 
-/// One FAQ item — a question and its business-authored answer.
 class GabayFaqItem {
   const GabayFaqItem({
     required this.question,
@@ -264,37 +249,18 @@ class GabayFaqItem {
   final String answer;
 }
 
-/// Package knowledge for Gabay — what the assistant needs to match and explain
-/// catering packages from the business's published catalog.
-///
-/// This stays grounded in [CateringPackage] exactly as the Content Moderator
-/// publishes it: name, type, price per head, minimum pax, inclusions (the courses),
-/// standard services, and the institutional-only flag.
 class GabayPackageKnowledge {
-  /// Packages the assistant may recommend — active, non-institutional catering
-  /// packages, because the institutional package is offered strictly to church,
-  /// government and school functions and shouldn't be surfaced as a general pick.
-  ///
-  /// Food pack packages are included too — they're a real published family the
-  /// assistant can talk about and match to a member's needs.
   static List<CateringPackage> recommendable(List<CateringPackage> all) {
     return all.where((p) => p.active && !p.isInstitutional).toList()
       ..sort((a, b) => a.price.compareTo(b.price));
   }
 
-  /// Packages that plausibly fit a member's stated budget and guest count.
-  ///
-  /// Budget matching uses the same band logic the recommendation engine already
-  /// uses: under ₱350/head is budget, ₱350–₱700 is sakto, over ₱700 is all-out.
-  /// Guest-count matching respects the package's minimum — a package whose minimum
-  /// is above the member's crowd is out of reach.
   static List<CateringPackage> fitting(
     List<CateringPackage> all, {
     required BudgetRange? budget,
     required GroupSize? group,
   }) {
     final candidates = recommendable(all);
-
     return candidates.where((p) {
       if (budget != null && _bandFor(p.price) != budget) return false;
       if (group != null && !_fitsGroup(p, group)) return false;
@@ -302,24 +268,14 @@ class GabayPackageKnowledge {
     }).toList();
   }
 
-  /// Plain-language explanation of what a package includes, in the business's own
-  /// words where it has them.
-  ///
-  /// [standardServices] is the newline-separated list of standard services every
-  /// package in this family carries; [inclusions] is the package's own menu /
-  /// course lines. The assistant uses this to say what the package actually buys,
-  /// not to invent a description.
   static String describe(CateringPackage pkg) {
     final parts = <String>[];
-
     if (pkg.standardServices.isNotEmpty) {
       parts.add('Standard: ${pkg.standardServices.join(", ")}.');
     }
-
     if (pkg.inclusions.isNotEmpty) {
       parts.add('Includes: ${pkg.inclusions.join(", ")}.');
     }
-
     if (pkg.minPax > 0) {
       parts.add(
         pkg.isFoodPack
@@ -327,22 +283,18 @@ class GabayPackageKnowledge {
             : 'Minimum ${pkg.minPax} guests.',
       );
     }
-
     if (parts.isEmpty) {
       return 'A ${pkg.type.toLowerCase()} package from HapagPamana.';
     }
-
     return parts.join(' ');
   }
 
-  /// Which budget band a per-head price falls into.
   static BudgetRange _bandFor(num pricePerHead) {
     if (pricePerHead < 350) return BudgetRange.budget;
     if (pricePerHead <= 700) return BudgetRange.mid;
     return BudgetRange.premium;
   }
 
-  /// Whether a package's minimum headcount suits a member's usual crowd.
   static bool _fitsGroup(CateringPackage pkg, GroupSize group) {
     switch (group) {
       case GroupSize.small:
@@ -355,23 +307,13 @@ class GabayPackageKnowledge {
   }
 }
 
-/// Menu knowledge for Gabay — what the assistant needs to talk about dishes and to
-/// suggest healthier alternatives from the business's published menu.
-///
-/// This stays grounded in [Product] exactly as the Content Moderator publishes it:
-/// name, category, type, allergens, featured flag. There are no invented dish
-/// descriptions here.
 class GabayMenuKnowledge {
-  /// Dishes that are visible in the app right now.
   static List<Product> visible(List<Product> all) =>
       all.where((p) => p.available).toList();
 
-  /// Dishes in a given category — the pool healthier-swaps and "dishes like this"
-  /// suggestions draw from.
   static List<Product> inCategory(List<Product> all, String category) =>
       visible(all).where((p) => p.category.toLowerCase() == category.toLowerCase()).toList();
 
-  /// Whether a dish carries any allergen the member has asked us to avoid.
   static bool crossoversAvoided(Product dish, Set<String> avoided) {
     if (avoided.isEmpty) return false;
     for (final tag in dish.allergens) {
@@ -380,40 +322,71 @@ class GabayMenuKnowledge {
     return false;
   }
 
-  /// Healthier alternatives to a dish, drawn from the same published menu.
-  ///
-  /// "Healthier" here is a menu-grounded heuristic, not a medical claim: dishes in
-  /// lighter-leaning categories (vegetables, seafood, grilled protein) are treated as
-  /// lighter options than heavy fried/riche courses. The assistant should present these
-  /// as suggestions the member can ask the kitchen about, not as guaranteed nutritional
-  /// facts.
-  ///
-  /// The member's own preferences ([MemberPreferences.healthierFirst],
-  /// [MemberPreferences.diet], [MemberPreferences.avoidAllergens]) are the business's
-  /// settings the assistant should respect; this helper returns candidates, and the
-  /// caller filters by those preferences before showing them.
-  static List<Product> healthierAlternatives(
+  static List<Product> healthierFor(
     List<Product> all,
-    String currentCategory,
-  ) {
-    final candidates = visible(all);
+    MemberPreferences prefs, {
+    int take = 6,
+  }) {
+    final visible = visible(all);
+    if (visible.isEmpty) return const [];
 
-    // Exclude the dish's own category first — we want alternatives, not the same thing.
-    final others = candidates
-        .where((p) => p.category.toLowerCase() != currentCategory.toLowerCase())
-        .toList();
+    final allowed = <Product>[];
+    for (final p in visible) {
+      if (crossoversAvoided(p, prefs.avoidAllergens)) continue;
+      if (!dietAllows(p, prefs.diet)) continue;
+      allowed.add(p);
+    }
+    if (allowed.isEmpty) return const [];
 
-    // Score by how "light" a category reads on a Filipino catering menu.
-    return others.map((p) => (_lighterScore(p.category), p)).toList()
-      ..sort((a, b) => b.$1.compareTo(a.$1));
+    allowed.sort((a, b) =>
+        (_lighterScoreRank(b.category)).compareTo(_lighterScoreRank(a.category)));
 
-    // Return the best-scoring alternatives, capped so the assistant doesn't swamp
-    // the member with options.
+    if (!prefs.healthierFirst) {
+      allowed.shuffle(const Random());
+    }
+
+    return allowed.take(take).toList();
   }
 
-  /// A menu-grounded "lightness" score for a category, 0–1.
-  ///
-  /// Higher means the category reads as a lighter option on this kitchen's menu.
+  static bool dietAllows(Product dish, DietStyle diet) {
+    final hay = '${dish.category} ${dish.name}'.toLowerCase();
+    switch (diet) {
+      case DietStyle.none:
+        return true;
+      case DietStyle.vegetarian:
+        return !_hasMeat(hay);
+      case DietStyle.vegan:
+        return !_hasAnimalProduct(hay);
+      case DietStyle.pescatarian:
+        return !_hasMeat(hay);
+      case DietStyle.noPork:
+        return !hay.contains('pork') && !hay.contains('baboy');
+      case DietStyle.halal:
+        return !hay.contains('pork') && !hay.contains('baboy');
+    }
+  }
+
+  static bool _hasMeat(String hay) {
+    return _hasAny(hay, [
+      'pork', 'baboy', 'beef', 'carne', 'chicken', 'manok',
+      'meat', 'liempo', 'lechon', 'sisig', 'crispy', 'pritu', 'fried',
+    ]);
+  }
+
+  static bool _hasAnimalProduct(String hay) {
+    return _hasMeat(hay) ||
+        hay.contains('milk') ||
+        hay.contains('cheese') ||
+        hay.contains('cream') ||
+        hay.contains('egg') ||
+        hay.contains('mayo') ||
+        hay.contains('butter');
+  }
+
+  static int _lighterScoreRank(String category) {
+    return (_lighterScore(category) * 100).round();
+  }
+
   static double _lighterScore(String category) {
     final key = category.toLowerCase();
     if (key.contains('vegetable') || key.contains('gulay')) return 0.9;
@@ -425,37 +398,35 @@ class GabayMenuKnowledge {
     return 0.5;
   }
 
-  /// Whether a dish carries any allergen the member has asked us to avoid.
-  static bool crossesAvoided(Product dish, Set<String> avoided) {
-    if (avoided.isEmpty) return false;
-    for (final tag in dish.allergens) {
-      if (avoided.contains(tag)) return true;
+  static bool _hasAny(String hay, List<String> terms) {
+    for (final t in terms) {
+      if (hay.contains(t)) return true;
     }
     return false;
   }
+
+  static List<Product> healthierAlternatives(
+    List<Product> all,
+    String currentCategory,
+  ) {
+    final candidates = visible(all);
+    final others = candidates
+        .where((p) => p.category.toLowerCase() != currentCategory.toLowerCase())
+        .toList();
+    final scored = others.map((p) => (_lighterScore(p.category), p)).toList();
+    scored.sort((a, b) => b.$1.compareTo(a.$1));
+    return scored.map((e) => e.$2).toList();
+  }
 }
 
-/// Recommendation explanations for Gabay — plain-language reasons grounded in the
-/// business's own recommendation evidence, not invented.
-///
-/// The assistant uses this to answer "why was this recommended?" honestly. Each
-/// explanation names the real source ([RecommendationSource]) and only claims what
-/// that source can support.
 class GabayExplanationKnowledge {
-  /// Plain-language explanation of a recommendation set — what produced it and what
-  /// that means.
-  ///
-  /// This is the "why this?" capability. It is grounded in [RecommendationSource] and
-  /// the evidence the engine already computes; it never invents a reason.
   static String explain(RecommendationSet set) {
     if (set.isEmpty) {
       return 'Nothing to recommend right now — the kitchen may not have published '
           'anything yet.';
     }
-
     final source = set.source;
     final count = set.items.length;
-
     switch (source) {
       case RecommendationSource.crowd:
         return 'These ${count} pick${count == 1 ? '' : 's'} are from customers who '
@@ -473,7 +444,6 @@ class GabayExplanationKnowledge {
     }
   }
 
-  /// A short, honest opening line for when Gabay shows the member their current picks.
   static String leadIn(RecommendationSet set) {
     if (set.isEmpty) {
       return 'I don\'t have any picks for you just yet — try asking me about packages or '
@@ -483,20 +453,235 @@ class GabayExplanationKnowledge {
   }
 }
 
-/// A single place the chat can ask for the business's cleaned content.
-///
-/// This aggregates the four knowledge pieces above so the assistant's intent router
-/// can query one entry point instead of wiring each capability to a different helper.
+class GabayPackagePersonalization {
+  /// A trimmed package list for a member who is looking for something by budget
+  /// and/or headcount. It uses [GabayPersonalization] as its member-aware input,
+  /// and keeps to the same public helpers the chat page already imports.
+  static List<CateringPackage> fitting(
+    List<CateringPackage> all,
+    GabayPersonalization person, {
+    int take = 5,
+  }) {
+    final candidates = GabayPackageKnowledge.recommendable(all);
+    final budget = person.budget;
+    final group = person.group;
+
+    final fitting = candidates.where((p) {
+      if (budget != null && GabayPackageKnowledge._bandFor(p.price) != budget)
+          return false;
+      if (group != null && !GabayPackageKnowledge._fitsGroup(p, group))
+          return false;
+      return true;
+    }).toList();
+
+    if (fitting.isEmpty) return fitting;
+
+    if (person.hasProfile) {
+      fitting.sort((a, b) {
+        final aEvent = _eventFit(a, person.occasions);
+        final bEvent = _eventFit(b, person.occasions);
+        if (aEvent != bEvent) return bEvent.compareTo(aEvent);
+        return a.price.compareTo(b.price);
+      });
+    } else {
+      fitting.sort((a, b) => a.price.compareTo(b.price));
+    }
+
+    final booked = _bookedPackageIds(person);
+    fitting.removeWhere((p) => booked.contains(p.id));
+
+    return fitting.take(take).toList();
+  }
+
+  static String reason(GabayPersonalization person, List<CateringPackage> picks) {
+    if (picks.isEmpty) {
+      return 'Nothing in our current packages fits what we know about your event right now.';
+    }
+    final parts = <String>[];
+    if (person.budget != null) {
+      parts.add(_budgetPhrase(person.budget!));
+    } else {
+      parts.add('for your budget');
+    }
+    if (person.group != null) {
+      parts.add('for ${_groupPhrase(person.group!)}');
+    } else {
+      parts.add('for your guest count');
+    }
+    if (person.occasions.isNotEmpty) {
+      final first = person.occasions.first;
+      final label = GabayPersonalization.occasionLabel(first);
+      parts.add('for a ${label.toLowerCase()}');
+    }
+    return 'Here are a few packages I picked that fit ${parts.join(" ")}. Tap one to see '
+        'what it includes and the minimum guest count, then book it if it suits your event.';
+  }
+
+  static List<String> _bookedPackageIds(GabayPersonalization person) {
+    final ids = <String>{};
+    for (final booking in person.completedOrders) {
+      final id = booking.value('packageId');
+      if (id.isNotEmpty) ids.add(id);
+    }
+    return ids.toList();
+  }
+
+  static int _eventFit(CateringPackage pkg, Set<String> occasions) {
+    if (occasions.isEmpty) return 0;
+    if (pkg.isFoodPack) return -1;
+    if (pkg.isInstitutional || pkg.name.toLowerCase().contains('serbisyo')) {
+      final institutionalOccasions = ['religious', 'wedding', 'corporate', 'fiesta'];
+      for (final o in occasions) {
+        if (institutionalOccasions.contains(o)) return 1;
+      }
+      return 0;
+    }
+    return 0;
+  }
+
+  static String _budgetPhrase(BudgetRange budget) {
+    switch (budget) {
+      case BudgetRange.budget:
+        return 'your budget-friendly range';
+      case BudgetRange.mid:
+        return 'your mid-range budget';
+      case BudgetRange.premium:
+        return 'your premium budget';
+    }
+  }
+
+  static String _groupPhrase(GroupSize group) {
+    switch (group) {
+      case GroupSize.small:
+        return 'your small crowd';
+      case GroupSize.medium:
+        return 'your medium crowd';
+      case GroupSize.large:
+        return 'your large crowd';
+    }
+  }
+}
+
+class GabayExplanationPersonalization {
+  /// A personalized "why am I seeing this?" explanation that mirrors the chat
+  /// page's expectation: it reads from a [GabayPersonalization] built by the chat
+  /// layer, and falls back to the same honest, non-personal phrasing the plain
+  /// explanation class uses when there's no member context to work with.
+  static String explain(GabayPersonalization person) {
+    if (person.recs.isEmpty) {
+      return 'Nothing to recommend right now — the kitchen may not have published anything yet.';
+    }
+    final source = person.recs.source;
+    final count = person.recs.items.length;
+    switch (source) {
+      case RecommendationSource.crowd:
+        return 'These ${count} pick${count == 1 ? '' : 's'} are from customers who ordered the '
+            'same things you do — what they enjoyed alongside your favourites. It\'s the app\'s '
+            'way of surfacing dishes or packages you might not have found on your own.';
+      case RecommendationSource.cf:
+        if (person.hasHistory) {
+          final categories = _categorySummary(person.completedOrders);
+          return 'These ${count} pick${count == 1 ? '' : 's'} are based on your past orders — '
+              'dishes and packages like the ones you\'ve gone for before (${categories}).';
+        }
+        return 'These ${count} pick${count == 1 ? '' : 's'} are based on your past orders — '
+            'dishes and packages like the ones you\'ve gone for before.';
+      case RecommendationSource.tasteProfile:
+        if (person.hasProfile) {
+          final flavors = _flavorSummary(person.flavorProfile);
+          final budget = person.budget;
+          final group = person.group;
+          final parts = <String>[];
+          if (flavors.isNotEmpty) parts.add(flavors);
+          if (budget != null) parts.add(_budgetPhrase(budget));
+          if (group != null) parts.add(_groupPhrase(group));
+          final lead = parts.isEmpty
+              ? 'what you told us you like'
+              : parts.join(', ');
+          return 'These ${count} pick${count == 1 ? '' : 's'} match your taste profile — ${lead} '
+              '— before you\'ve ordered with us yet.';
+        }
+        return 'These ${count} pick${count == 1 ? '' : 's'} match your taste profile — what you '
+            'told us you like, before you\'ve ordered with us yet.';
+      case RecommendationSource.featured:
+        return 'These ${count} pick${count == 1 ? '' : 's'} are featured by the kitchen — '
+            'the team\'s own picks, since we don\'t have your orders or profile to go on yet.';
+    }
+  }
+
+  static String _categorySummary(List<Booking> completed) {
+    if (completed.isEmpty) return 'your past orders';
+    final counts = <String, int>{};
+    for (final booking in completed) {
+      for (final line in [
+            ...booking.lines('menu'),
+            ...booking.lines('menuAddOns'),
+          ]) {
+        final key = _roughCategory(line);
+        if (key.isNotEmpty) counts[key] = (counts[key] ?? 0) + 1;
+      }
+    }
+    if (counts.isEmpty) return 'your past orders';
+    final ranked = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final top = ranked.take(2).map((e) => e.key).toList();
+    if (top.length == 1) return top.first;
+    return '${top[0]} and ${top[1]}';
+  }
+
+  static String _roughCategory(String line) {
+    final hay = line.toLowerCase();
+    if (hay.contains('seafood') || hay.contains('isda') || hay.contains('shrimp') ||
+        hay.contains('hipon') || hay.contains('squid') || hay.contains('bangus')) return 'seafood';
+    if (hay.contains('chicken') || hay.contains('manok') || hay.contains('bbq') || hay.contains('inihaw')) return 'chicken and grilled';
+    if (hay.contains('pork') || hay.contains('baboy') || hay.contains('liempo') || hay.contains('lechon')) return 'pork';
+    if (hay.contains('beef') || hay.contains('baka') || hay.contains('bulalo') || hay.contains('caldereta') || hay.contains('menudo')) return 'beef';
+    if (hay.contains('pasta') || hay.contains('noodle') || hay.contains('canton') || hay.contains('bihon') || hay.contains('palabok')) return 'pasta and noodles';
+    if (hay.contains('soup') || hay.contains('sinigang') || hay.contains('sabaw')) return 'soup';
+    if (hay.contains('vegetable') || hay.contains('gulay')) return 'vegetables';
+    if (hay.contains('dessert') || hay.contains('sweet') || hay.contains('leche') || hay.contains('cake') || hay.contains('buko') || hay.contains('halo')) return 'desserts';
+    return '';
+  }
+
+  static String _flavorSummary(Set<String> flavors) {
+    if (flavors.isEmpty) return '';
+    final labels = flavors.map((k) {
+      final note = FlavorNote.fromKey(k);
+      return note?.label ?? k;
+    }).toList();
+    if (labels.length == 1) return labels.first;
+    if (labels.length == 2) return '${labels[0]} and ${labels[1]}';
+    return '${labels.sublist(0, labels.length - 1).join(", ")} and ${labels.last}';
+  }
+
+  static String _budgetPhrase(BudgetRange budget) {
+    switch (budget) {
+      case BudgetRange.budget:
+        return 'a budget-friendly range';
+      case BudgetRange.mid:
+        return 'a mid-range budget';
+      case BudgetRange.premium:
+        return 'a premium budget';
+    }
+  }
+
+  static String _groupPhrase(GroupSize group) {
+    switch (group) {
+      case GroupSize.small:
+        return 'a small crowd';
+      case GroupSize.medium:
+        return 'a medium crowd';
+      case GroupSize.large:
+        return 'a large crowd';
+    }
+  }
+}
+
 class GabayKnowledge {
-  /// The FAQ content and matcher.
   static const faq = GabayFaq();
-
-  /// Package knowledge helpers.
   static const packages = GabayPackageKnowledge();
-
-  /// Menu knowledge helpers.
   static const menu = GabayMenuKnowledge();
-
-  /// Recommendation explanation helpers.
   static const explanations = GabayExplanationKnowledge();
+  static const packagePersonalization = GabayPackagePersonalization();
+  static const explanationPersonalization = GabayExplanationPersonalization();
 }
