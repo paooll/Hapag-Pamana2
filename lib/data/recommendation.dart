@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
+import 'allergens.dart';
 import 'catering.dart';
 import 'member_preferences.dart';
 import 'product.dart';
@@ -166,6 +168,7 @@ class GabayPersonalization {
     this.occasionTypes = const <OccasionType>{},
     this.dietDirective,
     this.healthierFirst = false,
+    this.flavorNotes = const <FlavorNote>{},
   });
 
   /// The member's settings in force right now.
@@ -196,9 +199,7 @@ class GabayPersonalization {
 
   /// The set of flavor notes the member leaned toward, if any — only present
   /// after they've finished the quiz.
-  Set<FlavorNote> get flavorNotes => _flavorNotes;
-
-  final Set<FlavorNote> _flavorNotes;
+  final Set<FlavorNote> flavorNotes;
 
   /// Builds a [GabayPersonalization] from the member's live context.
   ///
@@ -233,7 +234,12 @@ class GabayPersonalization {
       occasionTypes: occasionTypes,
       dietDirective: dietDirective,
       healthierFirst: prefs.gabayHealthierFirst,
-      _flavorNotes: profile?.flavorProfile.map((k) => FlavorNote.fromKey(k)).whereType<FlavorNote>().toSet() ?? const {},
+      flavorNotes:
+          profile?.flavorProfile
+              .map((k) => FlavorNote.fromKey(k))
+              .whereType<FlavorNote>()
+              .toSet() ??
+          const {},
     );
   }
 
@@ -249,14 +255,17 @@ class GabayPersonalization {
     BudgetRange? budget,
     GroupSize? group,
   }) {
-    final groupToTest =
-        group ?? groupSize ?? GroupSize.medium;
+    final groupToTest = group ?? groupSize ?? GroupSize.medium;
     final budgetToTest = budget ?? _budgetFromPrefs();
 
     final fitting = all.where((pkg) {
-      if (pkg.minPax > groupToTest.maxPax) return false;
-      if (budgetToTest != null && pkg.price > budgetToTest.maxPerHead) return false;
-      if (budgetToTest != null && pkg.price < budgetToTest.minPerHead) return false;
+      if (pkg.minPax > _maxPax(groupToTest)) return false;
+      if (budgetToTest != null && pkg.price > _maxPerHead(budgetToTest)) {
+        return false;
+      }
+      if (budgetToTest != null && pkg.price < _minPerHead(budgetToTest)) {
+        return false;
+      }
       return true;
     }).toList();
 
@@ -285,7 +294,7 @@ class GabayPersonalization {
     required BudgetRange? budget,
     required GroupSize? group,
   }) {
-    final shown = fitting.take(3);
+    final shown = fitting.take(3).toList();
     final names = shown.map((p) => p.name).join(', ');
     final parts = <String>[];
 
@@ -302,7 +311,7 @@ class GabayPersonalization {
     }
 
     parts.add(
-      'the packages that fit are ${names}. '
+      'the packages that fit are $names. '
       'Tap one to see what it includes and book it. '
       'Each one lists its own inclusions and minimum guest count, so you can check it '
       'against your event before you commit.',
@@ -328,13 +337,14 @@ class GabayPersonalization {
     final parts = <String>[];
 
     if (occasionTypes.isNotEmpty) {
-      final labels =
-          occasionTypes.map((o) => o.label).take(2).join(' and ');
-      parts.add('I leaned toward packages that suit ${labels}.');
+      final labels = occasionTypes.map((o) => o.label).take(2).join(' and ');
+      parts.add('I leaned toward packages that suit $labels.');
     }
 
     if (prefs.avoidAllergens.isNotEmpty) {
-      parts.add(' I also kept your ${prefs.avoidAllergens.length} avoided allergen${prefs.avoidAllergens.length == 1 ? '' : 's'} in mind — but the kitchen is the final word on that.');
+      parts.add(
+        ' I also kept your ${prefs.avoidAllergens.length} avoided allergen${prefs.avoidAllergens.length == 1 ? '' : 's'} in mind — but the kitchen is the final word on that.',
+      );
     }
 
     if (parts.isEmpty) {
@@ -355,7 +365,7 @@ class GabayPersonalization {
     final pool = all.where((p) {
       if (p.id == dish.id) return false;
       if (p.category == dish.category) return false;
-      if (p.allergens.containsAll(avoidAllergens)) return false;
+      if (p.allergens.any((key) => avoidAllergens.contains(key))) return false;
       return true;
     }).toList();
 
@@ -377,11 +387,15 @@ class GabayPersonalization {
   /// A plain-English note to append when suggesting a leaner dish to this member,
   /// when their avoided allergens overlap with the dish we're swapping away from.
   String noteHealthierCrossAllergens(Product dish, {Product? alternative}) {
-    final dishOverlap = dish.allergens.where((k) => avoidAllergens.contains(k)).toList();
+    final dishOverlap = dish.allergens
+        .where((k) => avoidAllergens.contains(k))
+        .toList();
     if (dishOverlap.isEmpty) return '';
 
-    final avoided =
-        dishOverlap.map((k) => _allergenLabel(k)).take(2).join(' and ');
+    final avoided = dishOverlap
+        .map((k) => _allergenLabel(k))
+        .take(2)
+        .join(' and ');
     if (prefs.avoidAllergens.length > 2) {
       return ' A couple of these still carry something you asked us to keep away from (${avoided}, among others), so double-check with the kitchen — especially if it\'s a serious allergy.';
     }
@@ -395,7 +409,7 @@ class GabayPersonalization {
 
   /// A short label for an allergen key, for in-line mentions.
   String _allergenLabel(String key) {
-    final known = kAllergensByKey[key];
+    final known = kAllergenByKey[key];
     return known?.short ?? key;
   }
 
@@ -431,20 +445,41 @@ class GabayPersonalization {
   bool _flavorNoteCovers(FlavorNote note, String lower) {
     return switch (note) {
       FlavorNote.seafood => lower.contains('seafood') || lower.contains('fish'),
-      FlavorNote.vegetables => lower.contains('vegetable') || lower.contains('salad'),
-      FlavorNote.grilled => lower.contains('grilled') || lower.contains('inihaw'),
+      FlavorNote.vegetables =>
+        lower.contains('vegetable') || lower.contains('salad'),
+      FlavorNote.grilled =>
+        lower.contains('grilled') || lower.contains('inihaw'),
       _ => false,
     };
   }
 
   BudgetRange? _budgetFromPrefs() => prefs.tasteProfile?.budgetRange;
 
+  static int _maxPax(GroupSize group) => switch (group) {
+    GroupSize.small => 30,
+    GroupSize.medium => 100,
+    GroupSize.large => 1000000,
+  };
+
+  static num _minPerHead(BudgetRange budget) => switch (budget) {
+    BudgetRange.budget => 0,
+    BudgetRange.mid => 350,
+    BudgetRange.premium => 700,
+  };
+
+  static num _maxPerHead(BudgetRange budget) => switch (budget) {
+    BudgetRange.budget => 350,
+    BudgetRange.mid => 700,
+    BudgetRange.premium => 1000000000,
+  };
+
   static String? _dietDirective(MemberPreferences prefs) {
     if (prefs.diet != DietStyle.none) return prefs.diet.label;
-    final avoid = prefs.avoidAllergens.toList()
-      ..sort();
+    final avoid = prefs.avoidAllergens.toList()..sort();
     if (avoid.isEmpty) return null;
-    final joined = avoid.map((k) => kAllergensByKey[k]?.label ?? k).join(' and ');
+    final joined = avoid
+        .map((k) => kAllergenByKey[k]?.label ?? k)
+        .join(' and ');
     return 'avoiding $joined';
   }
 
@@ -495,10 +530,7 @@ class GabayPersonalization {
 /// history the chat layer is willing to share with the knowledge layer for a
 /// single reply. It is not a domain model for the rest of the app.
 class GabayPersonalizationSnapshot {
-  const GabayPersonalizationSnapshot({
-    this.membership,
-    this.history,
-  });
+  const GabayPersonalizationSnapshot({this.membership, this.history});
 
   final CustomerMembership? membership;
   final GabayChatHistory? history;
@@ -508,7 +540,7 @@ class GabayPersonalizationSnapshot {
 /// layer for a single reply.
 ///
 /// Kept separate from [Customer] and [Booking] so the knowledge layer never
-/// imports the wider customer/booking domain — it only gets the narrow, 
+/// imports the wider customer/booking domain — it only gets the narrow,
 /// read-only context it needs.
 class CustomerMembership {
   const CustomerMembership({
@@ -550,8 +582,8 @@ class GabayChatHistory {
 /// preferences object owns the stream and the cache, and exposes this only so
 /// the rest of the app can read the quiz answers without reconstructing them
 /// from the raw map.
-class MemberPreferences {
-  const MemberPreferences({
+class GabayPreferenceCompat {
+  const GabayPreferenceCompat({
     this.orderUpdates = true,
     this.promotions = true,
     this.gabaySuggestions = true,
@@ -562,14 +594,14 @@ class MemberPreferences {
     this.tasteProfile,
   });
 
-  factory MemberPreferences.fromMap(Map<String, Object?>? data) {
+  factory GabayPreferenceCompat.fromMap(Map<String, Object?>? data) {
     bool flag(String key, bool fallback) {
       final v = data?[key];
       return v is bool ? v : fallback;
     }
 
     final raw = data?['avoidAllergens'];
-    return MemberPreferences(
+    return GabayPreferenceCompat(
       orderUpdates: flag('orderUpdates', true),
       promotions: flag('promotions', true),
       gabaySuggestions: flag('gabaySuggestions', true),
@@ -583,9 +615,7 @@ class MemberPreferences {
             },
       language: AppLanguage.fromCode(data?['language']),
       tasteProfile: data?['tasteProfile'] is Map
-          ? TasteProfile.fromMap(
-              data?['tasteProfile'] as Map<String, Object?>?,
-            )
+          ? TasteProfile.fromMap(data?['tasteProfile'] as Map<String, Object?>?)
           : null,
     );
   }
@@ -626,8 +656,9 @@ class MemberPreferences {
   /// "Vegetarian · avoiding 3 allergens".
   String get dietarySummary {
     final count = avoidAllergens.length;
-    final avoiding =
-        count == 0 ? '' : 'avoiding $count allergen${count == 1 ? '' : 's'}';
+    final avoiding = count == 0
+        ? ''
+        : 'avoiding $count allergen${count == 1 ? '' : 's'}';
     if (diet == DietStyle.none) {
       if (avoiding.isEmpty) return 'Not set yet';
       // Sentence-leading, since it stands alone here.
@@ -640,26 +671,26 @@ class MemberPreferences {
   /// against the taxonomy currently in force so a key an admin has since
   /// deleted quietly stops flagging dishes.
   List<Allergen> avoidedIn(Iterable<String> keys) => [
-        for (final k in keys)
-          if (avoidAllergens.contains(k) && kAllergenByKey[k] != null)
-            kAllergenByKey[k]!,
-      ];
+    for (final k in keys)
+      if (avoidAllergens.contains(k) && kAllergenByKey[k] != null)
+        kAllergenByKey[k]!,
+  ];
 
   /// The payload written to `customers/{uid}.preferences`.
   Map<String, Object?> toMap() => {
-        'orderUpdates': orderUpdates,
-        'promotions': promotions,
-        'gabaySuggestions': gabaySuggestions,
-        'healthierFirst': healthierFirst,
-        'diet': diet.key,
-        // Sorted so an unchanged set always writes the same array and the
-        // document doesn't churn on rewrite.
-        'avoidAllergens': avoidAllergens.toList()..sort(),
-        'language': language.code,
-        if (tasteProfile != null) 'tasteProfile': tasteProfile!.toMap(),
-      };
+    'orderUpdates': orderUpdates,
+    'promotions': promotions,
+    'gabaySuggestions': gabaySuggestions,
+    'healthierFirst': healthierFirst,
+    'diet': diet.key,
+    // Sorted so an unchanged set always writes the same array and the
+    // document doesn't churn on rewrite.
+    'avoidAllergens': avoidAllergens.toList()..sort(),
+    'language': language.code,
+    if (tasteProfile != null) 'tasteProfile': tasteProfile!.toMap(),
+  };
 
-  MemberPreferences copyWith({
+  GabayPreferenceCompat copyWith({
     bool? orderUpdates,
     bool? promotions,
     bool? gabaySuggestions,
@@ -669,7 +700,7 @@ class MemberPreferences {
     AppLanguage? language,
     TasteProfile? tasteProfile,
   }) {
-    return MemberPreferences(
+    return GabayPreferenceCompat(
       orderUpdates: orderUpdates ?? this.orderUpdates,
       promotions: promotions ?? this.promotions,
       gabaySuggestions: gabaySuggestions ?? this.gabaySuggestions,
@@ -683,7 +714,7 @@ class MemberPreferences {
 
   @override
   bool operator ==(Object other) =>
-      other is MemberPreferences &&
+      other is GabayPreferenceCompat &&
       other.orderUpdates == orderUpdates &&
       other.promotions == promotions &&
       other.gabaySuggestions == gabaySuggestions &&
@@ -695,15 +726,15 @@ class MemberPreferences {
 
   @override
   int get hashCode => Object.hash(
-        orderUpdates,
-        promotions,
-        gabaySuggestions,
-        healthierFirst,
-        diet,
-        language,
-        Object.hashAllUnordered(avoidAllergens),
-        tasteProfile,
-      );
+    orderUpdates,
+    promotions,
+    gabaySuggestions,
+    healthierFirst,
+    diet,
+    language,
+    Object.hashAllUnordered(avoidAllergens),
+    tasteProfile,
+  );
 
   /// The taste profile currently in force, if any.
   TasteProfile? get person => tasteProfile;

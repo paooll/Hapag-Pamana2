@@ -5,8 +5,12 @@ import 'package:flutter/material.dart';
 import '../../brand.dart';
 import '../../core/widgets/app_widgets.dart';
 import '../../data/customer_repository.dart';
+import '../../data/catering.dart';
+import '../../data/product.dart';
 import '../../data/member_preferences.dart';
 import '../../data/recommendation_repository.dart';
+import '../../data/recommendation.dart';
+import '../../data/taste_profile.dart';
 import '../../widgets.dart';
 import '../detail_sheets.dart';
 import '../home_sections.dart';
@@ -135,22 +139,24 @@ class _UserGabayPageState extends State<UserGabayPage> {
     // Keep the helper static from the UI's point of view: schedule a rebuild
     // when the reply lands, and surface errors as a quiet note rather than a
     // broken screen.
-    _chat.reply(text, prefs: MemberPreferencesScope.value, recs: _recs).then(
-      (reply) {
-        if (!mounted) return;
-        setState(() {
-          _chat.addAssistant(reply);
-        });
-      },
-      onError: (error) {
-        if (!mounted) return;
-        setState(() {
-          _chat.addAssistant(
-            'Sorry — I dropped your message. Try again in a moment.',
-          );
-        });
-      },
-    );
+    _chat
+        .reply(text, prefs: MemberPreferencesScope.value, recs: _recs)
+        .then(
+          (reply) {
+            if (!mounted) return;
+            setState(() {
+              _chat.addAssistant(reply);
+            });
+          },
+          onError: (error) {
+            if (!mounted) return;
+            setState(() {
+              _chat.addAssistant(
+                'Sorry — I dropped your message. Try again in a moment.',
+              );
+            });
+          },
+        );
   }
 
   void _sendStarter(String prompt) {
@@ -288,7 +294,7 @@ class _ChatHistory extends StatelessWidget {
         shrinkWrap: true,
         physics: const AlwaysScrollableScrollPhysics(),
         itemCount: messages.length,
-        separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),
+        separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
         itemBuilder: (context, i) {
           final message = messages[i];
           return message.isFromUser
@@ -745,8 +751,6 @@ class _GabayChat {
       dietDirective: _dietDirective(prefs),
       healthierFirst: prefs.gabayHealthierFirst,
     );
-    final lower = text.toLowerCase();
-
     // ── FAQ first ──────────────────────────────────────────────────────────
     final faq = GabayFaq.findAnswer(text);
     if (faq != null) {
@@ -758,7 +762,8 @@ class _GabayChat {
       return GabayFaq.groups
           .expand((g) => g.items)
           .firstWhere(
-            (item) => item.question.toLowerCase().contains('how do i book catering'),
+            (item) =>
+                item.question.toLowerCase().contains('how do i book catering'),
             orElse: () => GabayFaq.groups[0].items[0],
           )
           .answer;
@@ -767,7 +772,9 @@ class _GabayChat {
       return GabayFaq.groups
           .expand((g) => g.items)
           .firstWhere(
-            (item) => item.question.toLowerCase().contains('how do i order food packs'),
+            (item) => item.question.toLowerCase().contains(
+              'how do i order food packs',
+            ),
             orElse: () => GabayFaq.groups[0].items[1],
           )
           .answer;
@@ -776,7 +783,9 @@ class _GabayChat {
       return GabayFaq.groups
           .expand((g) => g.items)
           .firstWhere(
-            (item) => item.question.toLowerCase().contains('what do the order statuses mean'),
+            (item) => item.question.toLowerCase().contains(
+              'what do the order statuses mean',
+            ),
             orElse: () => GabayFaq.groups[0].items[2],
           )
           .answer;
@@ -785,7 +794,9 @@ class _GabayChat {
       return GabayFaq.groups
           .expand((g) => g.items)
           .firstWhere(
-            (item) => item.question.toLowerCase().contains('how much do i pay up front'),
+            (item) => item.question.toLowerCase().contains(
+              'how much do i pay up front',
+            ),
             orElse: () => GabayFaq.groups[1].items[0],
           )
           .answer;
@@ -794,7 +805,9 @@ class _GabayChat {
       return GabayFaq.groups
           .expand((g) => g.items)
           .firstWhere(
-            (item) => item.question.toLowerCase().contains('can you cook around an allergy'),
+            (item) => item.question.toLowerCase().contains(
+              'can you cook around an allergy',
+            ),
             orElse: () => GabayFaq.groups[2].items[1],
           )
           .answer;
@@ -821,7 +834,11 @@ class _GabayChat {
     final group = _parseGroup(text);
     if (budget != null || group != null) {
       final all = await _packages();
-      final fitting = GabayPackageKnowledge.fitting(all, budget: budget, group: group);
+      final fitting = GabayPackageKnowledge.fitting(
+        all,
+        budget: budget,
+        group: group,
+      );
       if (fitting.isNotEmpty) {
         return GabayPackagePersonalization.reason(person, fitting);
       }
@@ -838,7 +855,8 @@ class _GabayChat {
     }
 
     // ── Healthier options ───────────────────────────────────────────────────
-    if (_looksLike(text, 'healthier') || _looksLike(text, 'lighter') ||
+    if (_looksLike(text, 'healthier') ||
+        _looksLike(text, 'lighter') ||
         _looksLike(text, 'nutritious')) {
       final all = await _products();
       final visible = GabayMenuKnowledge.visible(all);
@@ -847,7 +865,8 @@ class _GabayChat {
       }
       // Fall back to the most obvious "lighter" categories if the member didn't
       // name a dish.
-      final suggestions = GabayMenuKnowledge.inCategory(all, 'Vegetables') +
+      final suggestions =
+          GabayMenuKnowledge.inCategory(all, 'Vegetables') +
           GabayMenuKnowledge.inCategory(all, 'Seafood');
       if (suggestions.isNotEmpty) {
         final names = suggestions.take(4).map((p) => p.name).toList();
@@ -862,7 +881,10 @@ class _GabayChat {
     // ── Healthier swap for a named dish ─────────────────────────────────────
     final dish = _findDish(text, all: await _products());
     if (dish != null) {
-      final alts = GabayMenuKnowledge.healthierAlternatives(await _products(), dish.category);
+      final alts = GabayMenuKnowledge.healthierAlternatives(
+        await _products(),
+        dish.category,
+      );
       if (alts.isNotEmpty) {
         final names = alts.take(4).map((p) => p.name).toList();
         return 'For a lighter take on "${dish.name}", you might also look at: '
@@ -874,7 +896,8 @@ class _GabayChat {
     }
 
     // ── Event planning / layout pointers (complementary role) ───────────────
-    if (_looksLike(text, 'plan my event') || _looksLike(text, 'event layout') ||
+    if (_looksLike(text, 'plan my event') ||
+        _looksLike(text, 'event layout') ||
         _looksLike(text, 'layout')) {
       return 'I can give you a few planning pointers, but the 3D layout planner is the '
           'best place for the actual room setup — I\'m here to explain the "why" behind it. '
@@ -884,8 +907,7 @@ class _GabayChat {
 
     // ── Fallback ────────────────────────────────────────────────────────────
     if (prefs.gabaySuggestions && recs.isNotEmpty) {
-      return GabayExplanationKnowledge.leadIn(recs) +
-          ' If you\'d rather pick something specific, try asking about a package or the menu.';
+      return '${GabayExplanationKnowledge.leadIn(recs)} If you\'d rather pick something specific, try asking about a package or the menu.';
     }
 
     return 'I\'m still learning the parts of catering that matter here. Try asking how to '
@@ -906,18 +928,21 @@ class _GabayChat {
     return crowd;
   }
 
-  List<OccasionType> _occasionTypes(MemberPreferences prefs) {
+  Set<OccasionType> _occasionTypes(MemberPreferences prefs) {
     final profile = prefs.person;
-    if (profile == null) return const [];
-    return profile.occasionTypes.map((k) => OccasionType.fromKey(k)).whereType<OccasionType>().toList();
+    if (profile == null) return const {};
+    return profile.occasionTypes
+        .map((k) => OccasionType.fromKey(k))
+        .whereType<OccasionType>()
+        .toSet();
   }
 
   String? _dietDirective(MemberPreferences prefs) {
     final profile = prefs.person;
-    final tasty = profile?.dietRange;
-    if (tasty != null && tasty.isNotEmpty) return tasty;
+    final tasty = profile?.budgetRange;
+    if (tasty != null) return tasty.label;
     final avoid = prefs.avoidAllergens;
-    final cleaned = avoid.where((a) => a.isNotBlank()).toList();
+    final cleaned = avoid.where((a) => a.trim().isNotEmpty).toList();
     if (cleaned.isNotEmpty) {
       return 'avoid ${cleaned.map((a) => a.toLowerCase().trim()).join(" and ")}';
     }
@@ -925,14 +950,20 @@ class _GabayChat {
   }
 
   BudgetRange? _parseBudget(String text) {
-    if (_looksLike(text, 'budget') || _looksLike(text, 'tipid') || _looksLike(text, 'under')) {
+    if (_looksLike(text, 'budget') ||
+        _looksLike(text, 'tipid') ||
+        _looksLike(text, 'under')) {
       return BudgetRange.budget;
     }
-    if (_looksLike(text, 'sakto') || _looksLike(text, 'mid') || _looksLike(text, '350') ||
+    if (_looksLike(text, 'sakto') ||
+        _looksLike(text, 'mid') ||
+        _looksLike(text, '350') ||
         _looksLike(text, '700')) {
       return BudgetRange.mid;
     }
-    if (_looksLike(text, 'all-out') || _looksLike(text, 'premium') || _looksLike(text, '700') ||
+    if (_looksLike(text, 'all-out') ||
+        _looksLike(text, 'premium') ||
+        _looksLike(text, '700') ||
         _looksLike(text, 'over')) {
       return BudgetRange.premium;
     }
@@ -940,15 +971,23 @@ class _GabayChat {
   }
 
   GroupSize? _parseGroup(String text) {
-    if (_looksLike(text, 'small') || _looksLike(text, 'intimate') || _looksLike(text, '30')) {
+    if (_looksLike(text, 'small') ||
+        _looksLike(text, 'intimate') ||
+        _looksLike(text, '30')) {
       return GroupSize.small;
     }
-    if (_looksLike(text, 'medium') || _looksLike(text, 'crowd') || _looksLike(text, '50') ||
+    if (_looksLike(text, 'medium') ||
+        _looksLike(text, 'crowd') ||
+        _looksLike(text, '50') ||
         _looksLike(text, '100')) {
       return GroupSize.medium;
     }
-    if (_looksLike(text, 'large') || _looksLike(text, 'barangay') || _looksLike(text, 'more than 100') ||
-        _looksLike(text, '150') || _looksLike(text, '200') || _looksLike(text, '500')) {
+    if (_looksLike(text, 'large') ||
+        _looksLike(text, 'barangay') ||
+        _looksLike(text, 'more than 100') ||
+        _looksLike(text, '150') ||
+        _looksLike(text, '200') ||
+        _looksLike(text, '500')) {
       return GroupSize.large;
     }
     return null;
@@ -1011,11 +1050,33 @@ class _GabayChat {
   List<String> _dishKeywords(String text) {
     // Trim the obvious question framing so we match the dish, not the sentence.
     final stopwords = <String>{
-      'suggest', 'healthier', 'options', 'for', 'a', 'the', 'can', 'you',
-      'give', 'me', 'alternatives', 'swap', 'swaps', 'lighter', 'meal',
-      'meals', 'dish', 'dishes', 'from', 'menu', 'i', 'want', 'please',
+      'suggest',
+      'healthier',
+      'options',
+      'for',
+      'a',
+      'the',
+      'can',
+      'you',
+      'give',
+      'me',
+      'alternatives',
+      'swap',
+      'swaps',
+      'lighter',
+      'meal',
+      'meals',
+      'dish',
+      'dishes',
+      'from',
+      'menu',
+      'i',
+      'want',
+      'please',
     };
-    return text.toLowerCase().split(RegExp(r'\s+'))
+    return text
+        .toLowerCase()
+        .split(RegExp(r'\s+'))
         .where((w) => w.isNotEmpty && !stopwords.contains(w))
         .toList();
   }
